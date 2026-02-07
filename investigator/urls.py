@@ -19,7 +19,7 @@ urlpatterns = [
     path('admin/', admin.site.urls),
     path('health/', health_check, name='health-check'),
     # path('api/v1/analytics/', include('analytics.urls')),
-    # path('api/v1/auth/', include('accounts.urls')),
+    path('api/v1/auth/', include('accounts.urls')),
     # path('api/v1/reviews/', include('reviews.urls')),
     # path('api/v1/notifications/', include('notifications.urls')),
     # path('api/v1/votes/', include('votes.urls')),
