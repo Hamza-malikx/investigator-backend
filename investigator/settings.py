@@ -116,8 +116,7 @@ else:
     }
 
 # Custom User Model
-# AUTH_USER_MODEL = 'authentication.User'
-# AUTH_USER_MODEL = 'accounts.User'
+AUTH_USER_MODEL = 'accounts.User'
 
 
 
