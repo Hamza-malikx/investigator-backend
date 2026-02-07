@@ -17,6 +17,7 @@ from core.websocket_utils import (
     broadcast_progress_update,
     broadcast_error
 )
+from agents.models import ThoughtChain
 
 logger = logging.getLogger(__name__)
 
@@ -200,6 +201,18 @@ def execute_subtask(self, subtask_id: str, investigation_id: str):
         # Build context
         context = build_investigation_context(investigation)
         
+        # Create thought: Starting research
+        sequence_num = investigation.thoughts.count() + 1
+        start_thought = ThoughtChain.objects.create(
+            investigation=investigation,
+            sequence_number=sequence_num,
+            thought_type='observation',
+            content=f"Starting research task: {subtask.description}",
+            confidence_before=context.get('confidence', 0.5),
+            confidence_after=context.get('confidence', 0.5),
+            led_to_task=subtask
+        )
+        
         # Execute with Gemini
         result = gemini_client.execute_research_step(
             task_description=subtask.description,
@@ -210,17 +223,33 @@ def execute_subtask(self, subtask_id: str, investigation_id: str):
         process_research_results(investigation, result, subtask)
         
         # Generate thought for transparency
-        thought = gemini_client.generate_thought(
+        thought_data = gemini_client.generate_thought(
             current_state={'hypothesis': investigation.plan.hypothesis},
-            new_information=f"Completed: {subtask.description}"
+            new_information=f"Completed: {subtask.description}. Found {len(result.get('entities', []))} entities."
         )
         
+        # Create thought chain entry
+        sequence_num = investigation.thoughts.count() + 1
+        thought = ThoughtChain.objects.create(
+            investigation=investigation,
+            sequence_number=sequence_num,
+            thought_type=thought_data.get('thought_type', 'observation'),
+            content=thought_data.get('content', f"Completed task: {subtask.description}"),
+            parent_thought=start_thought,
+            led_to_task=subtask,
+            confidence_before=thought_data.get('confidence_before', 0.5),
+            confidence_after=thought_data.get('confidence_after', 0.5)
+        )
+        
+        # Broadcast thought update
         broadcast_thought_update(investigation_id, {
-            'id': str(subtask.id),
-            'type': thought.get('thought_type', 'observation'),
-            'content': thought.get('content', ''),
-            'confidence': thought.get('confidence_after', 0.5),
-            'timestamp': str(timezone.now())
+            'id': str(thought.id),
+            'sequence': thought.sequence_number,
+            'type': thought.thought_type,
+            'content': thought.content,
+            'confidence_before': thought.confidence_before,
+            'confidence_after': thought.confidence_after,
+            'timestamp': str(thought.timestamp)
         })
         
         # Update subtask
@@ -246,6 +275,19 @@ def execute_subtask(self, subtask_id: str, investigation_id: str):
             subtask = SubTask.objects.get(id=subtask_id)
             subtask.status = 'failed'
             subtask.save()
+            
+            # Create error thought
+            investigation = Investigation.objects.get(id=investigation_id)
+            sequence_num = investigation.thoughts.count() + 1
+            ThoughtChain.objects.create(
+                investigation=investigation,
+                sequence_number=sequence_num,
+                thought_type='observation',
+                content=f"Task failed: {subtask.description}. Error: {str(e)}",
+                confidence_before=0.5,
+                confidence_after=0.3,
+                led_to_task=subtask
+            )
         except:
             pass
         

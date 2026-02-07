@@ -20,12 +20,7 @@ urlpatterns = [
     path('health/', health_check, name='health-check'),
     path('api/v1/investigations/', include('investigations.urls')),
     path('api/v1/auth/', include('accounts.urls')),
-    # path('api/v1/reviews/', include('reviews.urls')),
-    # path('api/v1/notifications/', include('notifications.urls')),
-    # path('api/v1/votes/', include('votes.urls')),
-    # path('api/v1/cities/', include('cities.urls')),
-    # path('api/v1/boosts/', include('boosts.urls')),
-    # path('api/v1/telegram/', include('telegram.urls')),
+    path('api/v1/agents/', include('agents.urls')),
 ]
 
 # Serve media files in development

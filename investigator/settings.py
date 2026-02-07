@@ -44,6 +44,7 @@ INSTALLED_APPS = [
     'voice',
     'reports',
     'core',
+    "agents"
 ]
 
 MIDDLEWARE = [
