@@ -251,10 +251,6 @@ MIT License - see LICENSE file for details
 - [Django Documentation](https://docs.djangoproject.com/)
 - [Django REST Framework](https://www.django-rest-framework.org/)
 
-## 👥 Team
-
-Built for Gemini 3 Hackathon by [Your Team Name]
-
 ---
 
 **Note**: This is a hackathon project. For production use, implement proper security audits, rate limiting, and monitoring.
