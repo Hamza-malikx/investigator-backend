@@ -25,23 +25,25 @@ INSTALLED_APPS = [
     "django.contrib.sessions",
     "django.contrib.messages",
     'django.contrib.staticfiles',
+    # Third-party
     'rest_framework',
     'rest_framework.authtoken',
-    'rest_framework_simplejwt',  # Added for JWT
-    'rest_framework_simplejwt.token_blacklist',  # Added for token blacklisting
+    'rest_framework_simplejwt',
+    'rest_framework_simplejwt.token_blacklist',
     'corsheaders',
     'django_filters',
-    # 'accounts',
-    # 'cities',
-    # "boosts",
-    # "reviews",
-    # "votes",
-    # "moderation",
-    # "audit_logs",
-    # 'telegram',
-    # 'notifications',
-    # 'django_celery_beat',
-    # 'django_celery_results',
+    'channels',
+    'django_celery_beat',
+    'django_celery_results',
+    # Project apps
+    'accounts',
+    'investigations',
+    'entities',
+    'evidence',
+    'board',
+    'voice',
+    'reports',
+    'core',
 ]
 
 MIDDLEWARE = [
@@ -75,7 +77,8 @@ TEMPLATES = [
 ]
 
 WSGI_APPLICATION = "investigator.wsgi.application"
-
+# Added ASGI application (for WebSockets)
+ASGI_APPLICATION = "investigator.asgi.application"
 
 # Database Configuration - PostgreSQL for both development and production
 if os.environ.get('DATABASE_URL'):
@@ -115,6 +118,8 @@ else:
 # Custom User Model
 # AUTH_USER_MODEL = 'authentication.User'
 # AUTH_USER_MODEL = 'accounts.User'
+
+
 
 # Password validation
 AUTH_PASSWORD_VALIDATORS = [
@@ -292,3 +297,28 @@ SESSION_CACHE_ALIAS = 'default'
 SESSION_COOKIE_AGE = 86400 * 30  # 30 days
 
 
+
+# Channel Layers (for WebSockets)
+CHANNEL_LAYERS = {
+    "default": {
+        "BACKEND": "channels_redis.core.RedisChannelLayer",
+        "CONFIG": {
+            "hosts": [os.environ.get('REDIS_URL', 'redis://redis:6379/1')],
+        },
+    },
+}
+
+# Celery Configuration
+CELERY_BROKER_URL = os.environ.get('CELERY_BROKER_URL', 'redis://redis:6379/0')
+CELERY_RESULT_BACKEND = os.environ.get('CELERY_RESULT_BACKEND', 'redis://redis:6379/0')
+CELERY_TASK_ALWAYS_EAGER = DEBUG
+CELERY_TASK_SERIALIZER = 'json'
+CELERY_RESULT_SERIALIZER = 'json'
+CELERY_ACCEPT_CONTENT = ['json']
+CELERY_TIMEZONE = TIME_ZONE
+CELERY_TASK_TRACK_STARTED = True
+CELERY_TASK_TIME_LIMIT = 30 * 60  # 30 minutes
+
+# Gemini API Configuration
+GEMINI_API_KEY = os.environ.get('GEMINI_API_KEY', '')
+GEMINI_MODEL_DEFAULT = os.environ.get('GEMINI_MODEL_DEFAULT', 'gemini-1.5-pro')
