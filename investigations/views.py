@@ -39,9 +39,11 @@ class InvestigationViewSet(viewsets.ModelViewSet):
         investigation.status = 'pending'
         investigation.save()
         
-        # TODO: Trigger Celery task to start investigation
-        # from .tasks import run_investigation
-        # run_investigation.delay(investigation.id)
+        # Trigger Celery task to start investigation
+        from core.tasks import run_investigation
+        run_investigation.delay(str(investigation.id)) 
+        
+        return investigation
     
     @action(detail=True, methods=['get'])
     def status(self, request, pk=None):
