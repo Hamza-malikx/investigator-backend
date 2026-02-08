@@ -90,10 +90,13 @@ class EntityAdmin(admin.ModelAdmin):
         else:
             color = '#6c757d'  # gray
         
+        # Format percentage separately to avoid format specifier issues
+        percentage_text = f"{obj.confidence:.0%}"
+        
         return format_html(
-            '<span style="background-color: {}; color: white; padding: 3px 8px; border-radius: 3px; font-weight: bold;">{:.0%}</span>',
+            '<span style="background-color: {}; color: white; padding: 3px 8px; border-radius: 3px; font-weight: bold;">{}</span>',
             color,
-            obj.confidence
+            percentage_text
         )
     confidence_badge.short_description = 'Confidence'
     confidence_badge.admin_order_field = 'confidence'
@@ -209,10 +212,13 @@ class RelationshipAdmin(admin.ModelAdmin):
         else:
             color = '#6c757d'
         
+        # Format percentage separately to avoid format specifier issues
+        percentage_text = f"{obj.confidence:.0%}"
+        
         return format_html(
-            '<span style="background-color: {}; color: white; padding: 3px 8px; border-radius: 3px; font-weight: bold;">{:.0%}</span>',
+            '<span style="background-color: {}; color: white; padding: 3px 8px; border-radius: 3px; font-weight: bold;">{}</span>',
             color,
-            obj.confidence
+            percentage_text
         )
     confidence_badge.short_description = 'Confidence'
     confidence_badge.admin_order_field = 'confidence'
@@ -222,13 +228,16 @@ class RelationshipAdmin(admin.ModelAdmin):
         width = int(obj.strength * 100)
         color = '#007bff' if obj.strength >= 0.5 else '#6c757d'
         
+        # Format percentage separately to avoid format specifier issues
+        percentage_text = f"{obj.strength:.0%}"
+        
         return format_html(
             '<div style="width: 100px; background-color: #e9ecef; border-radius: 3px;">'
-            '<div style="width: {}%; background-color: {}; height: 20px; border-radius: 3px; text-align: center; color: white; font-size: 11px; line-height: 20px;">{:.0%}</div>'
+            '<div style="width: {}%; background-color: {}; height: 20px; border-radius: 3px; text-align: center; color: white; font-size: 11px; line-height: 20px;">{}</div>'
             '</div>',
             width,
             color,
-            obj.strength
+            percentage_text
         )
     strength_bar.short_description = 'Strength'
     strength_bar.admin_order_field = 'strength'
