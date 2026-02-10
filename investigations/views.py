@@ -1,5 +1,5 @@
 # investigations/views.py
-
+import logging
 from rest_framework import viewsets, status, permissions
 from rest_framework.decorators import action
 from rest_framework.response import Response
@@ -12,7 +12,7 @@ from .serializers import (
     InvestigationRedirectSerializer, SubTaskSerializer,
     InvestigationPlanSerializer
 )
-
+logger = logging.getLogger(__name__)
 
 class InvestigationViewSet(viewsets.ModelViewSet):
     """ViewSet for Investigation CRUD operations"""
@@ -39,11 +39,60 @@ class InvestigationViewSet(viewsets.ModelViewSet):
         investigation.status = 'pending'
         investigation.save()
         
-        # Trigger Celery task to start investigation
+        # Trigger Celery task asynchronously (non-blocking)
         from core.tasks import run_investigation
-        run_investigation.delay(str(investigation.id)) 
+        run_investigation.delay(str(investigation.id))
         
+        # Return immediately - don't wait for task
         return investigation
+
+    def create(self, request, *args, **kwargs):
+        """Create investigation and return ID immediately"""
+        logger.info("=== Creating investigation ===")
+        logger.info(f"Request data: {request.data}")
+        
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        
+        # Create investigation record
+        investigation = serializer.save()
+        logger.info(f"Investigation created: {investigation.id}")
+        
+        # Update status to pending
+        investigation.status = 'pending'
+        investigation.started_at = timezone.now()
+        investigation.save()
+        logger.info(f"Investigation status set to pending")
+        
+        # Import and dispatch task
+        try:
+            from core.tasks import run_investigation
+            logger.info(f"Importing task: {run_investigation}")
+            
+            # Dispatch task
+            task_result = run_investigation.apply_async(
+                args=[str(investigation.id)],
+                countdown=1
+            )
+            logger.info(f"✅ Task dispatched! Task ID: {task_result.id}")
+            logger.info(f"Task state: {task_result.state}")
+            
+        except Exception as e:
+            logger.error(f"❌ Error dispatching task: {e}", exc_info=True)
+            # Don't fail the request - investigation is created
+        
+        # Prepare response
+        response_data = {
+            'id': str(investigation.id),
+            'title': investigation.title,
+            'status': investigation.status,
+            'current_phase': investigation.current_phase,
+            'progress_percentage': 0,
+            'created_at': investigation.created_at.isoformat(),
+        }
+        
+        logger.info(f"=== Returning response ===")
+        return Response(response_data, status=status.HTTP_201_CREATED)
     
     @action(detail=True, methods=['get'])
     def status(self, request, pk=None):

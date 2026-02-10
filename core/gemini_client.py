@@ -1,10 +1,30 @@
+# core/gemini_client.py - FIXED with timeout handling
+
 import json
 import logging
 from typing import List, Dict, Optional
 from django.conf import settings
 import google.generativeai as genai
+from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeoutError
+import functools
 
 logger = logging.getLogger(__name__)
+
+
+def with_timeout(timeout_seconds=30):
+    """Decorator to add timeout to function calls"""
+    def decorator(func):
+        @functools.wraps(func)
+        def wrapper(*args, **kwargs):
+            with ThreadPoolExecutor(max_workers=1) as executor:
+                future = executor.submit(func, *args, **kwargs)
+                try:
+                    return future.result(timeout=timeout_seconds)
+                except FuturesTimeoutError:
+                    logger.error(f"{func.__name__} timed out after {timeout_seconds}s")
+                    raise TimeoutError(f"Gemini API call timed out after {timeout_seconds} seconds")
+        return wrapper
+    return decorator
 
 
 class GeminiClient:
@@ -17,10 +37,17 @@ class GeminiClient:
         """Initialize Gemini client with API key"""
         self.api_key = settings.GEMINI_API_KEY
         if not self.api_key:
-            raise ValueError("GEMINI_API_KEY not set in settings")
+            logger.warning("⚠️  GEMINI_API_KEY not set - using fallback mode")
+            self.model = None
+            return
         
-        genai.configure(api_key=self.api_key)
-        self.model = genai.GenerativeModel(settings.GEMINI_MODEL_DEFAULT)
+        try:
+            genai.configure(api_key=self.api_key)
+            self.model = genai.GenerativeModel(settings.GEMINI_MODEL_DEFAULT)
+            logger.info(f"✅ Gemini client initialized with model: {settings.GEMINI_MODEL_DEFAULT}")
+        except Exception as e:
+            logger.error(f"❌ Failed to initialize Gemini: {e}")
+            self.model = None
         
         # Generation config
         self.generation_config = {
@@ -30,6 +57,7 @@ class GeminiClient:
             'max_output_tokens': 8192,
         }
     
+    @with_timeout(timeout_seconds=45)
     def plan_investigation(self, query: str, focus_areas: List[str] = None, 
                           depth_level: str = 'moderate') -> Dict:
         """
@@ -48,6 +76,10 @@ class GeminiClient:
                 'hypothesis': Initial hypothesis
             }
         """
+        if not self.model:
+            logger.warning("Gemini not available, using fallback plan")
+            return self._fallback_plan(query)
+        
         prompt = f"""You are an investigative AI agent. Create a detailed research plan for this investigation:
 
 INVESTIGATION QUERY: {query}
@@ -75,6 +107,7 @@ Respond ONLY with valid JSON in this exact format:
 }}"""
 
         try:
+            logger.info(f"📤 Calling Gemini API for investigation plan...")
             response = self.model.generate_content(
                 prompt,
                 generation_config=self.generation_config
@@ -82,14 +115,18 @@ Respond ONLY with valid JSON in this exact format:
             
             # Parse JSON response
             result = self._parse_json_response(response.text)
-            logger.info(f"Generated investigation plan with {len(result.get('subtasks', []))} subtasks")
+            logger.info(f"✅ Generated investigation plan with {len(result.get('subtasks', []))} subtasks")
             
             return result
             
+        except TimeoutError as e:
+            logger.error(f"⏱️  Timeout generating plan: {e}")
+            return self._fallback_plan(query)
         except Exception as e:
-            logger.error(f"Error generating investigation plan: {e}")
+            logger.error(f"❌ Error generating investigation plan: {e}")
             return self._fallback_plan(query)
     
+    @with_timeout(timeout_seconds=45)
     def execute_research_step(self, task_description: str, context: Dict) -> Dict:
         """
         Execute a single research step.
@@ -107,6 +144,10 @@ Respond ONLY with valid JSON in this exact format:
                 'next_steps': Suggested next actions
             }
         """
+        if not self.model:
+            logger.warning("Gemini not available, returning empty results")
+            return {'entities': [], 'relationships': [], 'evidence': [], 'confidence': 0.0}
+        
         prompt = f"""You are an investigative AI agent executing a research task.
 
 TASK: {task_description}
@@ -138,20 +179,25 @@ Respond ONLY with valid JSON:
 }}"""
 
         try:
+            logger.info(f"📤 Executing research step: {task_description[:50]}...")
             response = self.model.generate_content(
                 prompt,
                 generation_config=self.generation_config
             )
             
             result = self._parse_json_response(response.text)
-            logger.info(f"Research step found {len(result.get('entities', []))} entities")
+            logger.info(f"✅ Research step found {len(result.get('entities', []))} entities")
             
             return result
             
+        except TimeoutError as e:
+            logger.error(f"⏱️  Timeout executing research: {e}")
+            return {'entities': [], 'relationships': [], 'evidence': [], 'confidence': 0.0}
         except Exception as e:
-            logger.error(f"Error executing research step: {e}")
+            logger.error(f"❌ Error executing research step: {e}")
             return {'entities': [], 'relationships': [], 'evidence': [], 'confidence': 0.0}
     
+    @with_timeout(timeout_seconds=30)
     def extract_entities(self, text: str, context: Dict = None) -> List[Dict]:
         """
         Extract entities from text.
@@ -163,6 +209,9 @@ Respond ONLY with valid JSON:
         Returns:
             List of entities with type, name, description, confidence
         """
+        if not self.model:
+            return []
+        
         prompt = f"""Extract all important entities from this text:
 
 TEXT: {text}
@@ -194,19 +243,15 @@ Respond ONLY with valid JSON array:
             logger.error(f"Error extracting entities: {e}")
             return []
     
+    @with_timeout(timeout_seconds=30)
     def analyze_relationship(self, entity1_name: str, entity2_name: str, 
                            context: Dict) -> Optional[Dict]:
         """
         Determine relationship between two entities.
-        
-        Args:
-            entity1_name: First entity name
-            entity2_name: Second entity name
-            context: Investigation context
-            
-        Returns:
-            Relationship dict or None
         """
+        if not self.model:
+            return None
+        
         prompt = f"""Analyze the relationship between these two entities:
 
 ENTITY 1: {entity1_name}
@@ -243,17 +288,12 @@ Respond ONLY with valid JSON:
             logger.error(f"Error analyzing relationship: {e}")
             return None
     
+    @with_timeout(timeout_seconds=30)
     def evaluate_evidence(self, evidence_text: str, claim: str) -> Dict:
-        """
-        Evaluate how well evidence supports a claim.
+        """Evaluate how well evidence supports a claim."""
+        if not self.model:
+            return {'supports': None, 'strength': 0.0, 'credibility': 'low'}
         
-        Args:
-            evidence_text: The evidence content
-            claim: The claim to evaluate
-            
-        Returns:
-            Evaluation with support level, confidence, reasoning
-        """
         prompt = f"""Evaluate this evidence:
 
 CLAIM: {claim}
@@ -279,17 +319,12 @@ Respond ONLY with valid JSON:
             logger.error(f"Error evaluating evidence: {e}")
             return {'supports': None, 'strength': 0.0, 'credibility': 'low'}
     
+    @with_timeout(timeout_seconds=60)
     def generate_report(self, investigation_data: Dict, report_type: str = 'executive_summary') -> str:
-        """
-        Generate investigation report.
+        """Generate investigation report."""
+        if not self.model:
+            return f"# Investigation Report\n\nGemini API not available."
         
-        Args:
-            investigation_data: All investigation data (entities, relationships, evidence)
-            report_type: Type of report to generate
-            
-        Returns:
-            Markdown formatted report
-        """
         entities_summary = self._summarize_entities(investigation_data.get('entities', []))
         relationships_summary = self._summarize_relationships(investigation_data.get('relationships', []))
         
@@ -330,17 +365,17 @@ Use professional language and clear structure."""
             logger.error(f"Error generating report: {e}")
             return f"# Investigation Report\n\nError generating report: {str(e)}"
     
+    @with_timeout(timeout_seconds=30)
     def generate_thought(self, current_state: Dict, new_information: str) -> Dict:
-        """
-        Generate agent thought/reasoning for transparency.
+        """Generate agent thought/reasoning for transparency."""
+        if not self.model:
+            return {
+                'thought_type': 'observation',
+                'content': new_information,
+                'confidence_before': 0.5,
+                'confidence_after': 0.5
+            }
         
-        Args:
-            current_state: Current investigation state
-            new_information: New information discovered
-            
-        Returns:
-            Thought chain entry
-        """
         prompt = f"""You are an investigative AI agent. Generate your reasoning:
 
 CURRENT HYPOTHESIS: {current_state.get('hypothesis', 'No hypothesis yet')}
@@ -397,6 +432,7 @@ Respond ONLY with valid JSON:
     
     def _fallback_plan(self, query: str) -> Dict:
         """Fallback investigation plan if Gemini fails"""
+        logger.warning(f"⚠️  Using fallback plan for: {query}")
         return {
             'hypothesis': f'Investigating: {query}',
             'strategy': ['Analyze query', 'Research key terms', 'Identify entities'],
@@ -444,4 +480,9 @@ Respond ONLY with valid JSON:
 
 
 # Singleton instance
-gemini_client = GeminiClient()
+try:
+    gemini_client = GeminiClient()
+    logger.info("✅ Gemini client singleton created")
+except Exception as e:
+    logger.error(f"❌ Failed to create Gemini client: {e}")
+    gemini_client = None
